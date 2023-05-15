@@ -1,0 +1,22 @@
+{
+  "canisters": {
+    "hub": {
+      "candid": "src/hub/hub.did",
+      "package": "hub",
+      "type": "rust"
+    }
+  },
+  "defaults": {
+    "build": {
+      "args": "",
+      "packtool": ""
+    }
+  },
+  "output_env_file": ".env",
+  "networks": {
+    "local": {
+      "type": "ephemeral"
+    }
+  },
+  "version": 1
+}

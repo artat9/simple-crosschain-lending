@@ -1,0 +1,50 @@
+// SPDX-License-Identifier: UNLICENSED
+pragma solidity ^0.8.9;
+
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
+interface ICreditToken is IERC20 {
+    function UNDERLYING_ASSET_ADDRESS() external view returns (address);
+
+    function mint(address account, uint256 amount) external;
+
+    function burn(address account, uint256 amount) external;
+
+    function collateralAmountOf(
+        address account
+    ) external view returns (uint256);
+
+    function lockedBalanceOf(address account) external view returns (uint256);
+
+    function unlockedBalanceOf(address account) external view returns (uint256);
+
+    event LockCreated(
+        address indexed account,
+        uint256 amount,
+        uint256 dstChainId
+    );
+
+    event Received(address indexed account, uint256 amount, uint256 srcChainId);
+
+    function lockFor(
+        address account,
+        uint256 amount,
+        uint256 dstChainId
+    ) external;
+
+    function receiveFrom(
+        address account,
+        uint256 amount,
+        uint256 srcChainId
+    ) external;
+
+    function setLendingPool(address _lendingPool) external;
+
+    function setChainsight(address _chainsight) external;
+
+    function onLockCreated(
+        address account,
+        uint256 amount,
+        uint256 srcChainId
+    ) external;
+}

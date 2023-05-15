@@ -1,0 +1,8 @@
+{
+    "solidity.compileUsingRemoteVersion": "v0.8.9+commit.e5eed63a",
+    "rust-analyzer.linkedProjects": [
+        "./hub/Cargo.toml",
+    ],
+    "rust-analyzer.procMacro.attributes.enable": true,
+    "rust-analyzer.procMacro.enable": true
+}
