@@ -46,4 +46,7 @@ async fn liquidate(param: LiquidateParam) {
         return;
     }
     // liquidate @another network
+    // for network in networks {
+    // adapter.cs_liquidate()
+    //}
 }
