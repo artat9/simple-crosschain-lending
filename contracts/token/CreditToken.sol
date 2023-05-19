@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.9;
-import "contracts/interfaces/ICreditToken.sol";
+import "../interfaces/ICreditToken.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 contract CreditToken is ERC20, Ownable, ICreditToken {
     address public lendingPool;
@@ -14,7 +15,6 @@ contract CreditToken is ERC20, Ownable, ICreditToken {
     struct CrossChainAsset {
         uint256 amountLockedFor;
         uint256 amountLockedFrom;
-        uint256 amountReceivedFrom;
     }
 
     uint256[] public knownChainIds;
@@ -37,6 +37,7 @@ contract CreditToken is ERC20, Ownable, ICreditToken {
         );
         _;
     }
+    
 
     function setChainsight(address _chainsight) external override onlyOwner {
         chainsight = _chainsight;
@@ -57,6 +58,51 @@ contract CreditToken is ERC20, Ownable, ICreditToken {
     function setLendingPool(address _lendingPool) external override onlyOwner {
         lendingPool = _lendingPool;
     }
+    function transferUnderlyingTo(address account, uint256 amount)
+        public
+        override
+        onlyLendingPool
+    {
+        IERC20(UNDERLYING_ASSET_ADDRESS).transfer(account, amount);
+    }
+    
+    function _transfer(
+        address sender,
+        address recipient,
+        uint256 amount
+    ) internal override {
+        require(unlockedBalanceOf(sender) >= amount, "Insufficient balance");
+        super._transfer(sender, recipient, amount);
+    }
+
+    function unlockedBalanceOf(address account)
+        public
+        view
+        override
+        returns (uint256)
+    {
+        return balanceOf(account) - lockedBalanceOf(account);
+    }
+
+    function lockedBalanceOf(
+        address account
+    ) public view override returns (uint256) {
+        uint256 totalLockedBalance;
+        for (uint256 i = 0; i < knownChainIds.length; i++) {
+            totalLockedBalance += crossChainAssets[account][knownChainIds[i]]
+                .amountLockedFor;
+        }
+        return totalLockedBalance;
+    }
+
+    function receivedAmountOf(address account) internal view returns (uint256) {
+        uint256 totalReceivedAmount;
+        for (uint256 i = 0; i < knownChainIds.length; i++) {
+            totalReceivedAmount += crossChainAssets[account][knownChainIds[i]]
+                .amountLockedFrom;
+        }
+        return totalReceivedAmount;
+    }
 
     function onLockCreated(
         address account,
@@ -74,48 +120,12 @@ contract CreditToken is ERC20, Ownable, ICreditToken {
         }
     }
 
-    function _transfer(
-        address sender,
-        address recipient,
-        uint256 amount
-    ) internal override {
-        require(unlockedBalanceOf(sender) >= amount, "Insufficient balance");
-        super._transfer(sender, recipient, amount);
-    }
-
-    function lockedBalanceOf(
-        address account
-    ) public view override returns (uint256) {
-        uint256 totalLockedBalance;
-        for (uint256 i = 0; i < knownChainIds.length; i++) {
-            totalLockedBalance += crossChainAssets[account][knownChainIds[i]]
-                .amountLockedFor;
-        }
-        return totalLockedBalance;
-    }
-
-    function unlockedBalanceOf(
-        address account
-    ) public view override returns (uint256) {
-        return balanceOf(account) - lockedBalanceOf(account);
-    }
-
-    function unreceived(
-        address account,
-        uint256 srcChainId
-    ) public view returns (uint256) {
-        return
-            crossChainAssets[account][srcChainId].amountReceivedFrom -
-            crossChainAssets[account][srcChainId].amountLockedFrom;
-    }
-
-    function receivedAmountOf(address account) public view returns (uint256) {
-        uint256 totalReceivedAmount;
-        for (uint256 i = 0; i < knownChainIds.length; i++) {
-            totalReceivedAmount += crossChainAssets[account][knownChainIds[i]]
-                .amountReceivedFrom;
-        }
-        return totalReceivedAmount;
+    function transferOnLiquidation(address from, address to, uint256 amount)
+        public
+        override
+        onlyLendingPool
+    {
+        _transfer(from, to, amount);        
     }
 
     function collateralAmountOf(
@@ -131,24 +141,23 @@ contract CreditToken is ERC20, Ownable, ICreditToken {
     ) public override onlyLendingPool {
         knowChainId(dstChainId);
         require(unlockedBalanceOf(account) >= amount, "Insufficient balance");
-        crossChainAssets[account][dstChainId].amountLockedFor += amount;
-        emit LockCreated(account, amount, dstChainId);
+        CrossChainAsset storage crossChainAsset = crossChainAssets[account][
+            dstChainId
+        ];
+        emit LockCreated(account, amount, dstChainId);   
+        
+        if (crossChainAsset.amountLockedFrom == 0){
+            crossChainAsset.amountLockedFor = amount;
+            return;
+        } 
+        if (crossChainAsset.amountLockedFrom >= amount) {
+            crossChainAsset.amountLockedFrom -= amount;
+            return;
+        }
+        crossChainAsset.amountLockedFor += amount - crossChainAsset.amountLockedFrom;
+        crossChainAsset.amountLockedFrom = 0;  
     }
-
-    function receiveFrom(
-        address account,
-        uint256 amount,
-        uint256 srcChainId
-    ) public override onlyLendingPool {
-        require(chainIdExists[srcChainId], "Source chain id does not exist");
-        require(
-            unreceived(account, srcChainId) >= amount,
-            "Insufficient amount"
-        );
-
-        crossChainAssets[account][srcChainId].amountReceivedFrom += amount;
-        emit Received(account, amount, srcChainId);
-    }
+    
 
     // mint can only be called by lending pool
     function mint(
@@ -160,8 +169,10 @@ contract CreditToken is ERC20, Ownable, ICreditToken {
 
     function burn(
         address account,
+        address receiver,
         uint256 amount
     ) public override onlyLendingPool {
         _burn(account, amount);
+        IERC20(UNDERLYING_ASSET_ADDRESS).transfer(receiver, amount);
     }
 }

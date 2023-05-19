@@ -748,7 +748,7 @@ dependencies = [
 [[package]]
 name = "ic-solidity-bindgen"
 version = "0.1.0"
-source = "git+https://github.com/artat9/ic-solidity-bindgen#a50e5fb8fbcfc9e9e922b99eab1254db18c59f46"
+source = "git+https://github.com/horizonx-tech/ic-solidity-bindgen#70d22a6a553838f4b4cc387f463a414e079ff9ee"
 dependencies = [
  "async-trait",
  "ethabi 14.1.0",
@@ -765,7 +765,7 @@ dependencies = [
 [[package]]
 name = "ic-solidity-bindgen-macros"
 version = "0.1.0"
-source = "git+https://github.com/artat9/ic-solidity-bindgen#a50e5fb8fbcfc9e9e922b99eab1254db18c59f46"
+source = "git+https://github.com/horizonx-tech/ic-solidity-bindgen#70d22a6a553838f4b4cc387f463a414e079ff9ee"
 dependencies = [
  "Inflector",
  "ethabi 14.1.0",
@@ -806,7 +806,7 @@ dependencies = [
 [[package]]
 name = "ic-web3"
 version = "0.1.7"
-source = "git+https://github.com/artat9/ic-web3#7a2483f6e429c32ba861cf373453df9a55bb5905"
+source = "git+https://github.com/horizonx-tech/ic-web3#b1ae0308b8c074c14185f35fae0caebe3f96c6f4"
 dependencies = [
  "arrayvec 0.7.2",
  "candid",

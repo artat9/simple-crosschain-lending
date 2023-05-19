@@ -4,6 +4,8 @@ use candid::{CandidType, Deserialize};
 use ic_stable_memory::derive::{CandidAsDynSizeBytes, StableType};
 use lazy_static::lazy_static;
 
+const hardhat_deployed_contracts: &str = include_str!("../../../../contracts/deployments/hardhat.json");
+
 #[derive(
     CandidType,
     Debug,

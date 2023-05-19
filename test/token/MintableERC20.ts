@@ -8,10 +8,10 @@ describe('MintableERC20', function () {
   }
 
   describe('Deployment', function () {
-    it('Should be able to deploy', async function () {
+    it('should deploy', async function () {
       await deployMintableERC20();
     });
-    it('Should be able to mint', async function () {
+    it('should mint', async function () {
       const [to] = await ethers.getSigners();
       const instance = await deployMintableERC20();
       await instance.mint(

@@ -1,13 +1,16 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.9;
-import "contracts/interfaces/IDebtToken.sol";
+import "../interfaces/IDebtToken.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 
 contract DebtToken is ERC20, Ownable, IDebtToken {
     address public lendingPool;
     address public UNDERLYING_ASSET_ADDRESS;
     bool public initialized;
+
+    constructor(string memory name, string memory symbol) ERC20(name, symbol) {}
 
     modifier onlyLendingPool() {
         require(
@@ -16,7 +19,7 @@ contract DebtToken is ERC20, Ownable, IDebtToken {
         );
         _;
     }
-
+    
     function initialize(
         address _lendingPool,
         address underlying
@@ -27,7 +30,13 @@ contract DebtToken is ERC20, Ownable, IDebtToken {
         initialized = true;
     }
 
-    constructor(string memory name, string memory symbol) ERC20(name, symbol) {}
+    function _transfer(
+        address sender,
+        address recipient,
+        uint256 amount
+    ) internal override {
+        revert("Disabled");
+    }
 
     // mint can only be called by lending pool
     function mint(
@@ -42,21 +51,5 @@ contract DebtToken is ERC20, Ownable, IDebtToken {
         uint256 amount
     ) public override onlyLendingPool {
         _burn(account, amount);
-    }
-
-    // disable transfer
-    function transfer(address recipient, uint256 amount)
-        public pure override(IERC20, ERC20)
-        returns (bool)
-    {
-        revert("Disabled");
-    }
-
-    function transferFrom(
-        address sender,
-        address recipient,
-        uint256 amount
-    ) public pure override(IERC20, ERC20) returns (bool) {
-        revert("Disabled");
     }
 }

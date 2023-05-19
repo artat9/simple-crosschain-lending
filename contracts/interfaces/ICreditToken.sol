@@ -8,7 +8,9 @@ interface ICreditToken is IERC20 {
 
     function mint(address account, uint256 amount) external;
 
-    function burn(address account, uint256 amount) external;
+    function transferUnderlyingTo(address account, uint256 amount) external;
+
+    function burn(address account, address receiver, uint256 amount) external;
 
     function collateralAmountOf(
         address account
@@ -32,12 +34,6 @@ interface ICreditToken is IERC20 {
         uint256 dstChainId
     ) external;
 
-    function receiveFrom(
-        address account,
-        uint256 amount,
-        uint256 srcChainId
-    ) external;
-
     function setLendingPool(address _lendingPool) external;
 
     function setChainsight(address _chainsight) external;
@@ -47,4 +43,6 @@ interface ICreditToken is IERC20 {
         uint256 amount,
         uint256 srcChainId
     ) external;
+
+    function transferOnLiquidation(address from, address to, uint256 amount) external;
 }

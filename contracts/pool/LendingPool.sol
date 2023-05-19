@@ -1,176 +1,200 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.9;
-
-import "contracts/interfaces/ILendingPool.sol";
+import "../interfaces/ILendingPool.sol";
+import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
+import "../interfaces/ICreditToken.sol";
+import "../interfaces/IDebtToken.sol";
+import "../interfaces/IPriceOracle.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
-import "contracts/interfaces/ICreditToken.sol";
-import "contracts/interfaces/IDebtToken.sol";
-import "contracts/interfaces/IRiskModel.sol";
-import "contracts/interfaces/IPriceOracle.sol";
-import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "contracts/interfaces/IRiskModel.sol";
-
 contract LendingPool is ILendingPool, Ownable {
     struct Asset {
-        IERC20 asset;
-        string symbol;
+        IERC20Metadata underlying;
         ICreditToken creditToken;
         IDebtToken debtToken;
-    }
-
-    struct AddAssetInput {
-        address assetAddress;
         string symbol;
-        address creditTokenAddress;
-        address debtTokenAddress;
-        IRiskModel.RiskParameter riskParameter;
+        uint256 liquidationThreshold;
     }
 
-    struct HealthFactorInput {
-        address asset;
-        uint256 debt;
-        uint256 collateral;
+    uint256 internal constant BASE = 1e18;
+
+    mapping(address => Asset)public assets;
+    Asset[] public assetList;
+    mapping(string => address)public assetAddresses;
+
+    IPriceOracle priceOracle;
+    address public chainsight;
+
+    modifier onlyChainsight() {
+        require(msg.sender == chainsight, "only chainsight");
+        _;
     }
-
-    Asset[] public assets;
-
-    IRiskModel public riskModel;
-
-    bool public initialized;
-
-    IPriceOracle public priceOracle;
-
-    uint256 public HF_BASE = 1 ether;
-
-    function initialize(
-        address _riskModelAddress,
-        address _priceOracle
-    ) external onlyOwner {
-        require(!initialized, "Already initialized");
-        riskModel = IRiskModel(_riskModelAddress);
+    
+    function setOracle(address _priceOracle) external onlyOwner {
         priceOracle = IPriceOracle(_priceOracle);
-        initialized = true;
     }
 
-    function liquidationCall(
-        string calldata collateralAsset,
-        string calldata debtAsset,
-        address user,
-        uint256 debtToCover,
-        bool receiveLiquidity
-    ) external override {
-        revert("todo");
+    function creditTokenAddress(address asset) external view override returns(address) {
+        return address(assets[asset].creditToken);
     }
 
-    function _healthFactor(
-        HealthFactorInput[] memory inputs
-    ) internal view returns (uint256) {
-        uint256 totalBorrowsInUsd = 0;
-        uint256 totalCollateralInUsdMulLiquidationThreshold = 0;
-        for (uint256 i = 0; i < inputs.length; i++) {
-            HealthFactorInput memory input = inputs[i];
-            totalBorrowsInUsd += amountInUsd(input.asset, input.debt);
-            totalCollateralInUsdMulLiquidationThreshold +=
-                (amountInUsd(input.asset, input.collateral) *
-                    riskModel
-                        .riskParameters(input.asset)
-                        .liquidationThreshold) /
-                riskModel.BASE();
-        }
-        return
-            (totalCollateralInUsdMulLiquidationThreshold * HF_BASE) /
-            totalBorrowsInUsd;
+    function debtTokenAddress(address asset) external view override returns(address) {
+        return address(assets[asset].debtToken);
     }
 
-    function healthFactorOf(
-        address user
-    ) external view override returns (uint256) {
-        HealthFactorInput[] memory inputs = new HealthFactorInput[](
-            assets.length
-        );
-        for (uint256 i = 0; i < assets.length; i++) {
-            inputs[i] = HealthFactorInput(
-                address(assets[i].asset),
-                assets[i].debtToken.balanceOf(user),
-                assets[i].creditToken.balanceOf(user)
-            );
-        }
-        return _healthFactor(inputs);
+    function setChainsight(address _chainsight) external onlyOwner {
+        chainsight = _chainsight;
     }
 
-    function amountInUsd(
-        address _asset,
-        uint256 amount
-    ) internal view returns (uint256) {
-        Asset memory asset;
-        for (uint256 i = 0; i < assets.length; i++) {
-            if (address(assets[i].asset) == _asset) {
-                asset = assets[i];
-                break;
-            }
-        }
-        if (address(asset.asset) == address(0)) {
-            revert("Asset not found");
-        }
-        uint256 price = priceOracle.getPriceInUsd(asset.symbol);
-        return (price * amount) / priceOracle.BASE();
+    function priceOf(address _asset)internal view returns(uint256) {
+        return priceOracle.getPriceInUsd(assets[_asset].underlying.symbol());
     }
 
-    function addAsset(AddAssetInput memory input) external onlyOwner {
-        assets.push(
-            Asset(
-                IERC20(input.assetAddress),
-                input.symbol,
-                ICreditToken(input.creditTokenAddress),
-                IDebtToken(input.debtTokenAddress)
-            )
-        );
-        riskModel.supportToken(
-            input.assetAddress,
-            input.riskParameter.ltv,
-            input.riskParameter.liquidationThreshold,
-            input.riskParameter.liquidationBonus
-        );
+    function amountInUsd(address _asset, uint256 amount)internal view returns(uint256) {
+        return amount * priceOf(_asset) / (10 ** assets[_asset].underlying.decimals());
     }
 
-    function validateDeposit(
-        address user,
-        address asset,
-        uint256 amount
-    ) internal view returns (bool) {
-        for (uint256 i = 0; i < assets.length; i++) {
-            if (address(assets[i].asset) == asset) {
-                return true;
-            }
-        }
-        return false;
+    function deposit(address _asset, uint256 amount)external override {
+        Asset memory asset = assets[_asset];
+        asset.underlying.transferFrom(msg.sender, address(asset.creditToken), amount);
+        asset.creditToken.mint(msg.sender, amount);
     }
 
-    function deposit(address asset, uint256 amount) external override {
-        require(validateDeposit(msg.sender, asset, amount), "Invalid asset");
-        IERC20(asset).transferFrom(msg.sender, address(this), amount);
-        for (uint256 i = 0; i < assets.length; i++) {
-            if (address(assets[i].asset) == asset) {
-                assets[i].creditToken.mint(msg.sender, amount);
-            }
-        }
-    }
-
-    function withdraw(
-        address asset,
-        uint256 amount
-    ) external override returns (uint256) {
-        for (uint256 i = 0; i < assets.length; i++) {
-            if (address(assets[i].asset) == asset) {
-                assets[i].creditToken.burn(msg.sender, amount);
-                IERC20(asset).transfer(msg.sender, amount);
-                return amount;
-            }
-        }
+    function withdraw(address _asset, uint256 amount)external override returns(uint256) {
+        Asset memory asset = assets[_asset];
+        asset.creditToken.burn(msg.sender, msg.sender, amount);
         return 0;
     }
 
-    function borrow(address asset, uint256 amount) external override {}
+    function borrow(address _asset, uint256 amount) external override {
+        Asset memory asset = assets[_asset];
+        require (_healthFactorAfterDecrease(msg.sender, _asset, 0, amount) >= BASE, "health factor too low");
+        asset.debtToken.mint(msg.sender, amount);
+        asset.creditToken.transferUnderlyingTo(msg.sender, amount);
+    }
 
-    function repay(address asset, uint256 amount) external override {}
+    function repay(address _asset, uint256 amount)external override {
+        Asset memory asset = assets[_asset];
+        asset.debtToken.burn(msg.sender, amount);
+        asset.underlying.transferFrom(msg.sender, address(asset.creditToken), amount);
+    }
+
+    function healthFactorOf(address user) external view override returns(uint256) {
+        return _healthFactorOf(user);
+    }
+
+    function _healthFactorOf(address user) internal view returns(uint256) {
+        return _healthFactorAfterDecrease(user, address(0), 0, 0);
+    }
+
+
+    function _healthFactorAfterDecrease(address user, address _asset, uint256 collateralDecreased, uint256 borrowAdded) internal view returns(uint256) {
+        uint256 totalBorrowsInUsd = 0;
+        uint256 totalCollateral = 0;
+        for (uint256 i = 0; i < assetList.length; i++) {
+            Asset memory asset = assetList[i];
+            totalBorrowsInUsd += amountInUsd(address(asset.underlying), asset.debtToken.balanceOf(user));
+            uint256 collateralAmountInUsd = amountInUsd(address(asset.underlying), asset.creditToken.collateralAmountOf(user));
+            uint256 collateralizable = collateralAmountInUsd * asset.liquidationThreshold;
+            totalCollateral += collateralizable;
+            if (_asset == address(asset.underlying)) {
+                totalBorrowsInUsd += amountInUsd(address(asset.underlying), borrowAdded);
+                totalCollateral -= amountInUsd(address(asset.underlying), collateralDecreased);
+            }
+        }
+        if (totalBorrowsInUsd == 0) {
+            return type(uint256).max;
+        }
+        return totalCollateral / totalBorrowsInUsd;
+    }
+
+    function initReserve(address reserve, address creditToken, address debtToken) external override onlyOwner {
+        Asset memory asset = Asset({
+            underlying : IERC20Metadata(reserve),
+            creditToken : ICreditToken(creditToken),
+            debtToken : IDebtToken(debtToken),
+            symbol : IERC20Metadata(reserve).symbol(),
+            liquidationThreshold : 80 * BASE / 100 // 80%
+        });
+        assets[reserve] = asset;
+        assetList.push(asset);
+        assetAddresses[asset.symbol] = reserve;
+    }
+
+    function liquidationCall(address collateral, address debt, address user, uint256 debtToCover) external override {        
+        Asset memory debtAsset = assets[debt];
+        debtAsset.underlying.transferFrom(msg.sender, address(debtAsset.creditToken), _liquidationCallOnBehalfOf(collateral, debt, user, debtToCover, msg.sender));
+    }
+
+    function liquidationCallByChainsight(address collateral, address debt, address user, uint256 debtToCover, address onBehalfOf) external override onlyChainsight returns (uint256){
+        return _liquidationCallOnBehalfOf(collateral, debt, user, debtToCover, onBehalfOf);
+    }
+
+    function amountNeededToLiquidate(address collateral, address debt, address user, uint256 debtToCover) external view override returns (uint256) {
+        (, uint256 act)= _actualDebtToLiquidate(collateral, debt, user, debtToCover);
+        return act;
+    }
+
+    function lockFor(address asset,uint256 amount,uint256 dstChainId) external override {
+        assets[asset].creditToken.lockFor(msg.sender, amount, dstChainId);
+        emit LockCreated(msg.sender, asset, assets[asset].underlying.symbol(), amount, dstChainId);
+    }
+
+    function _actualDebtToLiquidate(address collateral, address debt, address user, uint256 debtToCover) internal view returns (uint256 max, uint256 act) {
+        Asset memory collateralAsset = assets[collateral];
+        Asset memory debtAsset = assets[debt];
+        uint256 debtAmount = debtAsset.debtToken.balanceOf(user);
+        uint256 maxLiquidatable = debtAmount / 2;
+        act = debtToCover > maxLiquidatable ? maxLiquidatable : debtToCover;
+        (uint256 maxAmountCollateralToLiquidate, uint256 debtAmountNeeded) = _calculateAvailableCollateralToLiquidate(collateral, debt, act, collateralAsset.creditToken.collateralAmountOf(user));
+        if (debtAmountNeeded < act) {
+            act = debtAmountNeeded;
+        }
+        return (maxAmountCollateralToLiquidate, act);
+    }
+
+    function _liquidationCallOnBehalfOf(address collateral, address debt, address user, uint256 debtToCover, address onBehalfOf) internal returns (uint256) {
+        require(_healthFactorOf(user) < BASE, "health factor is not low enough");
+        Asset memory collateralAsset = assets[collateral];
+        Asset memory debtAsset = assets[debt];
+        (uint256 maxAmountCollateralToLiquidate, uint256 act) = _actualDebtToLiquidate(collateral, debt, user, debtToCover);
+        uint256 currentAvailableCollateral = collateralAsset.underlying.balanceOf(address(collateralAsset.creditToken));
+        require(currentAvailableCollateral >= maxAmountCollateralToLiquidate, "not enough collateral to liquidate");
+        debtAsset.debtToken.burn(user, act);
+        collateralAsset.creditToken.burn(user, onBehalfOf, maxAmountCollateralToLiquidate);
+        return act;
+    }
+
+    struct AvailableCollateralToLiquidateLocalVars {
+        uint256 userCompoundedBorrowBalance;
+        uint256 liquidationBonus;
+        uint256 collateralPrice;
+        uint256 debtAssetPrice;
+        uint256 maxAmountCollateralToLiquidate;
+        uint256 debtAssetDecimals;
+        uint256 collateralDecimals;
+    }
+
+    function _calculateAvailableCollateralToLiquidate(
+        address collateralAsset,
+        address debtAsset,
+        uint256 debtToCover,
+        uint256 userCollateralBalance
+    ) internal view returns (uint256, uint256) {
+        uint256 collateralAmount = 0;
+        uint256 debtAmountNeeded = 0;
+        AvailableCollateralToLiquidateLocalVars memory vars;
+        vars.collateralPrice = priceOracle.getPriceInUsd(assets[collateralAsset].symbol);
+        vars.debtAssetPrice = priceOracle.getPriceInUsd(assets[debtAsset].symbol);
+        vars.collateralDecimals = assets[collateralAsset].underlying.decimals();
+        vars.debtAssetDecimals = assets[debtAsset].underlying.decimals();
+        vars.maxAmountCollateralToLiquidate = vars.debtAssetPrice * debtToCover * (10** vars.collateralDecimals)/(vars.collateralPrice * (10 ** vars.debtAssetDecimals));
+        if (vars.maxAmountCollateralToLiquidate > userCollateralBalance) {
+            collateralAmount = userCollateralBalance;
+            debtAmountNeeded = vars.collateralPrice * collateralAmount * (10 ** vars.debtAssetDecimals)/(vars.debtAssetPrice * (10 ** vars.collateralDecimals));
+        } else {
+            collateralAmount = vars.maxAmountCollateralToLiquidate;
+            debtAmountNeeded = debtToCover;
+        }
+        return (collateralAmount, debtAmountNeeded);
+    }
 }
